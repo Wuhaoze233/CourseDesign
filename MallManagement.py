@@ -109,7 +109,7 @@ def merchant_operations():
     button_check_balance = tk.Button(window_merchant_ops, text="查看余额", command=check_balance)
     button_rent_shop = tk.Button(window_merchant_ops, text="租用商铺", command=rent_shop)
     button_view_transactions = tk.Button(window_merchant_ops, text="查看交易记录", command=view_transactions)
-    button_view_rentals = tk.Button(window_merchant_ops, text="查看租赁记录", command=view_rentals)
+    button_view_rentals = tk.Button(window_merchant_ops, text="查看当前租赁列表", command=view_rentals)
     button_recharge_balance = tk.Button(window_merchant_ops, text="充值余额", command=recharge_balance_window)
     button_unsubscribe_merchant = tk.Button(window_merchant_ops, text="注销商户", command=unsubscribe_merchant)
     button_unrent_shop = tk.Button(window_merchant_ops, text="退租商铺", command=unrent_shop)
@@ -157,7 +157,7 @@ def rent_shop_confirm(shop_name, window):
         cursor.execute("SELECT rent FROM Shops WHERE status=0 and shop_name=?", (shop_name,))
         rent = cursor.fetchone()
         print(rent)
-        if not rent[0]:
+        if not rent:
             raise ValueError("商铺不存在或已被租用")
         print(shop_name)
         confirm = tk.messagebox.askyesno(title="租用商铺", message=f"租金为{rent[0]},您确定要租用商铺吗？")
@@ -376,16 +376,15 @@ def unsubscribe_merchant():
         cursor = conn.cursor()
 
         # 检查商户是否存在
-        cursor.execute("SELECT * FROM Merchants WHERE merchant_name=?", (merchant_name,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (merchant_name,))
+        merchant_id = cursor.fetchone()
+        if not merchant_id:
             raise ValueError("商户名不存在")
-        # 检查商户是否有未结清的租金
-        cursor.execute("SELECT * FROM Shops WHERE merchant_name=?", (merchant_name,))
 
         #删除商户的租赁交易
-        cursor.execute("DELETE FROM Transactions WHERE merchant_id=?", (merchant_name,))
+        cursor.execute("DELETE FROM Transactions WHERE merchant_id=?", (merchant_id[0],))
         #删除商户的租赁记录
-        cursor.execute("UPDATE Shops SET status=false, merchant_id=0 WHERE merchant_name=?", (merchant_name,))
+        cursor.execute("UPDATE Shops SET status=false, merchant_id=0 WHERE merchant_id=?", (merchant_id[0],))
 
         # 删除商户信息
         cursor.execute("DELETE FROM Merchants WHERE merchant_name=?", (merchant_name,))
