@@ -145,32 +145,23 @@ def rent_shop():
     tk_shop_name.set("商铺名")
     entry_shop_name = tk.Entry(frame_rent, textvariable=tk_shop_name)
     entry_shop_name.pack()
-    conn = create_connection()
-    cursor = conn.cursor()
-    shop_name = tk_shop_name.get()
+    button_rent = tk.Button(frame_rent, text="租用",
+                        command=lambda: rent_shop_confirm(tk_shop_name.get(), windows_rent))
+    button_rent.pack()
+
+
+def rent_shop_confirm(shop_name, window):
     try:
-        cursor.execute("SELECT rent FROM Shops WHERE status=false and shop_name=?", (shop_name,))
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT rent FROM Shops WHERE status=0 and shop_name=?", (shop_name,))
         rent = cursor.fetchone()
-        button_rent = tk.Button(frame_rent, text="租用",
-                                command=lambda: rent_shop_confirm(shop_name, rent, windows_rent, frame_rent))
-        button_rent.pack()
-
-    except ValueError as e:
-        messagebox.showerror("错误", str(e))
-
-def rent_shop_confirm(shop_name, rent, window, frame_rent):
-    try:
-        label_rent = tk.Label(frame_rent, text="租金:")
-        label_rent.pack()
-        tk_rent = tk.StringVar()
-        if rent:
-            tk_rent.set(f"租金：{rent}")
-            label_rent.config(text=f"租金：{rent}")
-        else:
+        print(rent)
+        if not rent[0]:
             raise ValueError("商铺不存在或已被租用")
-
-        confirm = tk.messagebox.askquestion(question="租用商铺", message=f"您确定要租用商铺 {shop_name} 吗？")
-        if confirm != 'yes':
+        print(shop_name)
+        confirm = tk.messagebox.askyesno(title="租用商铺", message=f"租金为{rent[0]},您确定要租用商铺吗？")
+        if not confirm:
             raise ValueError("租用已取消")
 
 
@@ -193,38 +184,60 @@ def rent_shop_confirm(shop_name, rent, window, frame_rent):
         rental_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("UPDATE Shops SET status=true, merchant_id=?, rent_time=? WHERE shop_name=?", (merchant_id[0], rental_date, shop_name))
 
-        conn.commit()
-        conn.close()
+
 
         messagebox.showinfo("成功", "租用成功")
         #扣除第一个月的租金
         cursor.execute("UPDATE Merchants SET balance = balance - ? WHERE merchant_id = ?", (rent[0], merchant_id[0]))
+        # 插入交易记录
+        transaction_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute(
+            "INSERT INTO Transactions (merchant_id, amount, transaction_type, transaction_time) VALUES (?, ?, ?, ?)",
+            (merchant_id[0], rent[0], 'rent', transaction_date))
+        conn.commit()
+        conn.close()
         window.destroy()
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
 def unrent_shop():
-    try:
-        shop_name = usr_merchant.get()
-        if not shop_name:
-            raise ValueError("商铺名不能为空")
+    shop_name = usr_merchant.get()
+    if not shop_name:
+        raise ValueError("商铺名不能为空")
 
+    window_unrent = tk.Toplevel(root)
+    window_unrent.title("退租商铺")
+    window_unrent.geometry("400x300")
+    frame_unrent = tk.Frame(window_unrent)
+    frame_unrent.pack(pady=20)
+    label_shop_name = tk.Label(frame_unrent, text="商铺名:")
+    label_shop_name.pack()
+    tk_shop_name = tk.StringVar()
+    tk_shop_name.set("商铺名")
+    entry_shop_name = tk.Entry(frame_unrent, textvariable=tk_shop_name)
+    entry_shop_name.pack()
+    button_unrent = tk.Button(frame_unrent, text="退租",
+                              command=lambda: unrent_shop_confirm(tk_shop_name.get(), window_unrent))
+    button_unrent.pack()
+
+def unrent_shop_confirm(shop_name, window):
+    try:
         conn = create_connection()
         cursor = conn.cursor()
 
         # Fetch merchant ID
-        cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (shop_name,))
+        cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (usr_merchant.get(),))
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
 
         # Update shop status and remove merchant ID
         cursor.execute("UPDATE Shops SET status=false, merchant_id=0 WHERE shop_name=?", (shop_name,))
-
         conn.commit()
         conn.close()
 
         messagebox.showinfo("成功", "退租成功")
+        window.destroy()
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
