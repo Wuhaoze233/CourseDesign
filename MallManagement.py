@@ -490,6 +490,12 @@ def delete_shop(shop_name, window):
         if not cursor.fetchone():
             raise ValueError("商铺名不存在")
 
+        # 检查商铺是否被租用
+        cursor.execute("SELECT status FROM Shops WHERE shop_name=?", (shop_name,))
+        status = cursor.fetchone()[0]
+        if status:
+            raise ValueError("商铺已被租用，无法注销")
+
         # 删除商铺信息
         cursor.execute("DELETE FROM Shops WHERE shop_name=?", (shop_name,))
         conn.commit()
