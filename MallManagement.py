@@ -26,7 +26,7 @@ def create_tables():
         merchant_id NOT NULL DEFAULT 0,
         status BOOL DEFAULT false,
         rent REAL NOT NULL,
-        rent_time TEXT NOT NULL
+        rent_time TEXT DEFAULT '0000-00-00 00:00:00'
     )''')
 
     #创建交易记录表，包含交易编号，商户编号，交易类型，交易时间和交易金额
@@ -145,9 +145,6 @@ def rent_shop():
     tk_shop_name.set("商铺名")
     entry_shop_name = tk.Entry(frame_rent, textvariable=tk_shop_name)
     entry_shop_name.pack()
-    label_rent = tk.Label(frame_rent, text="租金:")
-    label_rent.pack()
-    tk_rent = tk.StringVar()
     conn = create_connection()
     cursor = conn.cursor()
     shop_name = tk_shop_name.get()
@@ -155,19 +152,28 @@ def rent_shop():
         cursor.execute("SELECT rent FROM Shops WHERE status=false and shop_name=?", (shop_name,))
         rent = cursor.fetchone()
         button_rent = tk.Button(frame_rent, text="租用",
-                                command=lambda: rent_shop_confirm(shop_name, rent, windows_rent, tk_rent, label_rent))
+                                command=lambda: rent_shop_confirm(shop_name, rent, windows_rent, frame_rent))
         button_rent.pack()
 
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
-def rent_shop_confirm(shop_name, rent, window, tk_rent, label_rent):
+def rent_shop_confirm(shop_name, rent, window, frame_rent):
     try:
+        label_rent = tk.Label(frame_rent, text="租金:")
+        label_rent.pack()
+        tk_rent = tk.StringVar()
         if rent:
             tk_rent.set(f"租金：{rent}")
             label_rent.config(text=f"租金：{rent}")
         else:
             raise ValueError("商铺不存在或已被租用")
+
+        confirm = tk.messagebox.askquestion(question="租用商铺", message=f"您确定要租用商铺 {shop_name} 吗？")
+        if confirm != 'yes':
+            raise ValueError("租用已取消")
+
+
         conn = create_connection()
         cursor = conn.cursor()
 
@@ -176,6 +182,12 @@ def rent_shop_confirm(shop_name, rent, window, tk_rent, label_rent):
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
+        # Check if the merchant has enough balance
+        cursor.execute("SELECT balance FROM Merchants WHERE merchant_id=?", (merchant_id[0],))
+        balance = cursor.fetchone()
+        if not balance or balance[0] < rent[0]:
+            raise ValueError("余额不足，请充值")
+
 
         # Update shop status and assign merchant ID
         rental_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -372,14 +384,226 @@ def unsubscribe_merchant():
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
+def shop_operations():
+    #商铺操作界面
+    window_shop_ops = tk.Toplevel(root)
+    window_shop_ops.title("商铺操作界面")
+    window_shop_ops.geometry("400x300")
+    button_new_shop = tk.Button(window_shop_ops, text="新建商铺", command=new_shop)
+    button_unsubscribe_shop = tk.Button(window_shop_ops, text="注销商铺", command=unsubscribe_shop)
+    button_change_rent = tk.Button(window_shop_ops, text="修改租金", command=change_rent)
+    button_show_all_shops = tk.Button(window_shop_ops, text="查看所有商铺", command=show_all_shops)
+    button_show_all_merchants = tk.Button(window_shop_ops, text="查看所有商户", command=show_all_merchants)
+    button_show_all_transactions = tk.Button(window_shop_ops, text="查看所有交易记录", command=show_all_transactions)
+    button_new_shop.pack(pady=5)
+    button_unsubscribe_shop.pack(pady=5)
+    button_change_rent.pack(pady=5)
+    button_show_all_shops.pack(pady=5)
+    button_show_all_merchants.pack(pady=5)
+    button_show_all_transactions.pack(pady=5)
+
+def new_shop():
+    #新建商铺界面
+    window_new_shop = tk.Toplevel(root)
+    window_new_shop.title("新建商铺")
+    window_new_shop.geometry("400x300")
+    frame_new_shop = tk.Frame(window_new_shop)
+    frame_new_shop.pack(pady=20)
+    label_shop_name = tk.Label(frame_new_shop, text="商铺名:")
+    label_shop_name.pack()
+    tk_shop_name = tk.StringVar()
+    tk_shop_name.set("商铺名")
+    entry_shop_name = tk.Entry(frame_new_shop, textvariable=tk_shop_name)
+    entry_shop_name.pack()
+    label_rent = tk.Label(frame_new_shop, text="租金:")
+    label_rent.pack()
+    tk_rent = tk.StringVar()
+    tk_rent.set("0")
+    entry_rent = tk.Entry(frame_new_shop, textvariable=tk_rent)
+    entry_rent.pack()
+    button_create = tk.Button(frame_new_shop, text="创建", command=lambda: create_new_shop(tk_shop_name.get(), (float)(tk_rent.get()), window_new_shop))
+    button_create.pack()
+
+def create_new_shop(shop_name, rent, window):
+    try:
+        if not shop_name:
+            raise ValueError("商铺名不能为空")
+        if rent <= 0:
+            raise ValueError("租金必须大于零")
+
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        # 检查商铺名是否已存在
+        cursor.execute("SELECT * FROM Shops WHERE shop_name=?", (shop_name,))
+        if cursor.fetchone():
+            raise ValueError("商铺名已存在")
+
+        # 插入商铺信息
+        cursor.execute("INSERT INTO Shops (shop_name, rent, rent_time, status) VALUES (?, ?, ?, ?)", (shop_name, rent, '0000-00-00 00:00:00', False))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("创建成功", "商铺创建成功")
+        window.destroy()
+    except ValueError as e:
+        messagebox.showerror("错误", str(e))
 
 def unsubscribe_shop():
+    #注销商铺界面
+    window_unsubscribe_shop = tk.Toplevel(root)
+    window_unsubscribe_shop.title("注销商铺")
+    window_unsubscribe_shop.geometry("400x300")
+    frame_unsubscribe_shop = tk.Frame(window_unsubscribe_shop)
+    frame_unsubscribe_shop.pack(pady=20)
+    label_shop_name = tk.Label(frame_unsubscribe_shop, text="商铺名:")
+    label_shop_name.pack()
+    tk_shop_name = tk.StringVar()
+    tk_shop_name.set("商铺名")
+    entry_shop_name = tk.Entry(frame_unsubscribe_shop, textvariable=tk_shop_name)
+    entry_shop_name.pack()
+    button_delete = tk.Button(frame_unsubscribe_shop, text="注销", command=lambda: delete_shop(tk_shop_name.get(), window_unsubscribe_shop))
+    button_delete.pack()
 
-    pass
+def delete_shop(shop_name, window):
+    try:
+        if not shop_name:
+            raise ValueError("商铺名不能为空")
 
-def shop_operations():
+        conn = create_connection()
+        cursor = conn.cursor()
 
-    pass
+        # 检查商铺名是否存在
+        cursor.execute("SELECT * FROM Shops WHERE shop_name=?", (shop_name,))
+        if not cursor.fetchone():
+            raise ValueError("商铺名不存在")
+
+        # 删除商铺信息
+        cursor.execute("DELETE FROM Shops WHERE shop_name=?", (shop_name,))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("注销成功", "商铺注销成功")
+        window.destroy()
+    except ValueError as e:
+        messagebox.showerror("错误", str(e))
+
+def change_rent():
+    #修改租金界面
+    window_change_rent = tk.Toplevel(root)
+    window_change_rent.title("修改租金")
+    window_change_rent.geometry("400x300")
+    frame_change_rent = tk.Frame(window_change_rent)
+    frame_change_rent.pack(pady=20)
+    label_shop_name = tk.Label(frame_change_rent, text="商铺名:")
+    label_shop_name.pack()
+    tk_shop_name = tk.StringVar()
+    tk_shop_name.set("商铺名")
+    entry_shop_name = tk.Entry(frame_change_rent, textvariable=tk_shop_name)
+    entry_shop_name.pack()
+    label_new_rent = tk.Label(frame_change_rent, text="新租金:")
+    label_new_rent.pack()
+    tk_new_rent = tk.StringVar()
+    tk_new_rent.set("0")
+    entry_new_rent = tk.Entry(frame_change_rent, textvariable=tk_new_rent)
+    entry_new_rent.pack()
+    button_update = tk.Button(frame_change_rent, text="修改", command=lambda: update_shop_rent(tk_shop_name.get(), (float)(tk_new_rent.get()), window_change_rent))
+    button_update.pack()
+
+def update_shop_rent(shop_name, new_rent, window):
+    try:
+        if not shop_name:
+            raise ValueError("商铺名不能为空")
+        if new_rent <= 0:
+            raise ValueError("租金必须大于零")
+
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        # 检查商铺名是否存在
+        cursor.execute("SELECT * FROM Shops WHERE shop_name=?", (shop_name,))
+        if not cursor.fetchone():
+            raise ValueError("商铺名不存在")
+
+        # 更新商铺租金
+        cursor.execute("UPDATE Shops SET rent=? WHERE shop_name=?", (new_rent, shop_name))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("修改成功", "商铺租金修改成功")
+        window.destroy()
+    except ValueError as e:
+        messagebox.showerror("错误", str(e))
+
+def show_all_shops():
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM Shops")
+    shops = cursor.fetchall()
+    conn.close()
+
+    # Create a new window to display shops
+    window_shops = tk.Toplevel(root)
+    window_shops.title("所有商铺")
+    window_shops.geometry("600x400")
+    tk.Label(window_shops, text="商铺编号").grid(row=0, column=0)
+    tk.Label(window_shops, text="商铺名").grid(row=0, column=1)
+    tk.Label(window_shops, text="商户编号").grid(row=0, column=2)
+    tk.Label(window_shops, text="租用状态").grid(row=0, column=3)
+    tk.Label(window_shops, text="租金").grid(row=0, column=4)
+    tk.Label(window_shops, text="租用时间").grid(row=0, column=5)
+    for i, shop in enumerate(shops):
+        tk.Label(window_shops, text=shop[0]).grid(row=i+1, column=0)
+        tk.Label(window_shops, text=shop[1]).grid(row=i+1, column=1)
+        tk.Label(window_shops, text=shop[2]).grid(row=i+1, column=2)
+        tk.Label(window_shops, text=shop[3]).grid(row=i+1, column=3)
+        tk.Label(window_shops, text=shop[4]).grid(row=i+1, column=4)
+        tk.Label(window_shops, text=shop[5]).grid(row=i+1, column=5)
+
+def show_all_merchants():
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM Merchants")
+    merchants = cursor.fetchall()
+    conn.close()
+
+    # Create a new window to display merchants
+    window_merchants = tk.Toplevel(root)
+    window_merchants.title("所有商户")
+    window_merchants.geometry("400x300")
+    tk.Label(window_merchants, text="商户编号").grid(row=0, column=0)
+    tk.Label(window_merchants, text="商户名").grid(row=0, column=1)
+    tk.Label(window_merchants, text="余额").grid(row=0, column=2)
+    for i, merchant in enumerate(merchants):
+        tk.Label(window_merchants, text=merchant[0]).grid(row=i+1, column=0)
+        tk.Label(window_merchants, text=merchant[1]).grid(row=i+1, column=1)
+        tk.Label(window_merchants, text=merchant[2]).grid(row=i+1, column=2)
+
+def show_all_transactions():
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM Transactions")
+    transactions = cursor.fetchall()
+    conn.close()
+
+    # Create a new window to display transactions
+    window_transactions = tk.Toplevel(root)
+    window_transactions.title("所有交易记录")
+    window_transactions.geometry("600x400")
+    tk.Label(window_transactions, text="交易编号").grid(row=0, column=0)
+    tk.Label(window_transactions, text="商户编号").grid(row=0, column=1)
+    tk.Label(window_transactions, text="交易类型").grid(row=0, column=2)
+    tk.Label(window_transactions, text="交易时间").grid(row=0, column=3)
+    tk.Label(window_transactions, text="交易金额").grid(row=0, column=4)
+    for i, transaction in enumerate(transactions):
+        tk.Label(window_transactions, text=transaction[0]).grid(row=i+1, column=0)
+        tk.Label(window_transactions, text=transaction[1]).grid(row=i+1, column=1)
+        tk.Label(window_transactions, text=transaction[2]).grid(row=i+1, column=2)
+        tk.Label(window_transactions, text=transaction[3]).grid(row=i+1, column=3)
+        tk.Label(window_transactions, text=transaction[4]).grid(row=i+1, column=4)
 
 #创建图形界面
 root = tk.Tk()
