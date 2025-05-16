@@ -1,8 +1,10 @@
 import tkinter as tk
+import threading
+import time
 from locale import windows_locale
 from tkinter import messagebox
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def create_connection():
@@ -623,6 +625,48 @@ def show_all_transactions():
         tk.Label(window_transactions, text=transaction[3]).grid(row=i+1, column=3)
         tk.Label(window_transactions, text=transaction[4]).grid(row=i+1, column=4)
 
+def deduct_rent():
+    while True:
+        try:
+            conn = create_connection()
+            cursor = conn.cursor()
+
+            current_date = datetime.now().date()
+            cursor.execute("SELECT shop_id, rent, merchant_id, rent_time FROM Shops WHERE status=true")
+            rented_shops = cursor.fetchone()
+
+            for shop in rented_shops:
+                shop_id, rent, merchant_id, rent_time = shop
+                rent_time = datetime.strptime(rent_time, '%Y-%m-%d %H:%M:%S').date()
+
+                next_rent_date = rent_time + timedelta(days=30 * ((current_date - rent_time).days // 30 + 1))
+                if current_date >= next_rent_date:
+                    cursor.execute("SELECT balance FROM Merchants WHERE merchant_id=?",(merchant_id, ))
+                    balance = cursor.fetchone()
+                    if not balance or balance[0] < rent:
+                        cursor.execute("UPDATE Shops SET status=false, merchant_id=0 WHERE shop_id=?", (shop_id,))
+                        messagebox.showinfo("租金不足", f"商户编号{merchant_id}余额不足，已自动退租商铺编号{shop_id}")
+                        raise ValueError("商户余额不足，已退租商铺")
+
+                    cursor.execute("UPDATE Merchants SET balance = balance - ? WHERE merchant_id=?", (rent, merchant_id))
+                    transaction_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    cursor.execute(
+                        "INSERT INTO Transactions (merchant_id, amount, transaction_type, transaction_time) VALUES (?, ?, ?, ?)",
+                        (merchant_id, rent, 'monthly_rent', transaction_date)
+                    )
+
+                    cursor.execute("UPDATE Shops SET rent_time=? WHERE shop_id=?", (next_rent_date, shop_id))
+            conn.commit()
+            conn.close()
+
+            time.sleep(24*60*60)  # 每天检查一次
+        except ValueError as e:
+            print(f"错误: {e}")
+
+def start_rent_deduction_task():
+    rent_thread = threading.Thread(target=deduct_rent, daemon=True)
+    rent_thread.start()
+
 #创建图形界面
 root = tk.Tk()
 root.title("商场管理系统")
@@ -649,3 +693,4 @@ button_shop_ops.grid(row=1, column=3, pady=10)
 
 create_tables()
 root.mainloop()
+start_rent_deduction_task()
