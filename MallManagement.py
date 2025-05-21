@@ -1,7 +1,6 @@
 import tkinter as tk
 import threading
 import time
-from locale import windows_locale
 from tkinter import messagebox
 import sqlite3
 from datetime import datetime, timedelta
@@ -21,7 +20,7 @@ def create_tables():
         balance REAL NOT NULL DEFAULT 0.0
     )''')
 
-    #创建商铺表，包含商铺编号，商铺租用状态，商铺租金，当前租用的商户编号
+    #创建商铺表，包含商铺编号，商铺名，商铺租用状态，商铺租金，当前租用的商户编号，上一次租金收取时间
     cursor.execute('''CREATE TABLE IF NOT EXISTS Shops(
         shop_id INTEGER PRIMARY KEY AUTOINCREMENT,
         shop_name TEXT NOT NULL,
@@ -76,7 +75,6 @@ def register_merchant():
         conn.close()
 
         messagebox.showinfo("注册成功", "商户注册成功")
-        # entry_merchant_name.delete(0, tk.END) #清空输入框
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
@@ -97,9 +95,7 @@ def login_merchant():
             raise ValueError("商户名不存在")
 
         messagebox.showinfo("登录成功", "商户登录成功")
-        # entry_merchant_name.delete(0, tk.END) #清空输入框
-        #在这里可以添加商户登录后的操作，比如跳转到商户操作界面
-        merchant_operations()
+        merchant_operations() #跳转至商户操作界面
     except ValueError as e:
         messagebox.showerror("错误", str(e))
 
@@ -130,11 +126,14 @@ def check_balance():
                    (usr_merchant.get(),))
     balance = cursor.fetchone()
 
-    if balance:
+    if balance[0]:
         messagebox.showinfo("余额查询", message=f"您的余额为: {balance[0]}元")
     else:
-        messagebox.showinfo("余额查询", message="您还未进行过充值！")
+        if_recharge = messagebox.askquestion("余额查询", message="您还未进行过充值！是否跳转至充值界面？")
+        if if_recharge == 'yes':
+            recharge_balance_window()
 
+#商铺租用窗口
 def rent_shop():
     windows_rent = tk.Toplevel(root)
     windows_rent.title("租用商铺")
@@ -151,17 +150,15 @@ def rent_shop():
                         command=lambda: rent_shop_confirm(tk_shop_name.get(), windows_rent))
     button_rent.pack()
 
-
+#商铺租用确认
 def rent_shop_confirm(shop_name, window):
     try:
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT rent FROM Shops WHERE status=0 and shop_name=?", (shop_name,))
         rent = cursor.fetchone()
-        print(rent)
         if not rent:
             raise ValueError("商铺不存在或已被租用")
-        print(shop_name)
         confirm = tk.messagebox.askyesno(title="租用商铺", message=f"租金为{rent[0]},您确定要租用商铺吗？")
         if not confirm:
             raise ValueError("租用已取消")
@@ -170,19 +167,16 @@ def rent_shop_confirm(shop_name, window):
         conn = create_connection()
         cursor = conn.cursor()
 
-        # Fetch merchant ID
         cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (usr_merchant.get(),))
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
-        # Check if the merchant has enough balance
+
         cursor.execute("SELECT balance FROM Merchants WHERE merchant_id=?", (merchant_id[0],))
         balance = cursor.fetchone()
         if not balance or balance[0] < rent[0]:
             raise ValueError("余额不足，请充值")
 
-
-        # Update shop status and assign merchant ID
         rental_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("UPDATE Shops SET status=true, merchant_id=?, rent_time=? WHERE shop_name=?", (merchant_id[0], rental_date, shop_name))
 
@@ -227,13 +221,16 @@ def unrent_shop_confirm(shop_name, window):
         conn = create_connection()
         cursor = conn.cursor()
 
-        # Fetch merchant ID
         cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (usr_merchant.get(),))
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
 
-        # Update shop status and remove merchant ID
+        cursor.execute("SELECT shop_id FROM Shops WHERE shop_name=? and merchant_id=?", (shop_name, merchant_id[0]))
+        shop_id = cursor.fetchone()
+        if not shop_id:
+            raise ValueError("商铺不存在或未被租用")
+
         cursor.execute("UPDATE Shops SET status=false, merchant_id=0 WHERE shop_name=?", (shop_name,))
         conn.commit()
         conn.close()
@@ -252,20 +249,17 @@ def view_transactions():
         conn = create_connection()
         cursor = conn.cursor()
 
-        # Fetch merchant ID
         cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (merchant_name,))
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
 
-        # Fetch transactions for the merchant
         cursor.execute(
             "SELECT transaction_id, transaction_type, transaction_time, amount FROM Transactions WHERE merchant_id=?",
             (merchant_id[0],))
         transactions = cursor.fetchall()
         conn.close()
 
-        # Create a new window to display transactions
         window_transactions = tk.Toplevel(root)
         window_transactions.title("交易记录")
         window_transactions.geometry("600x400")
@@ -293,19 +287,17 @@ def view_rentals():
         conn = create_connection()
         cursor = conn.cursor()
 
-        # Fetch merchant ID
         cursor.execute("SELECT merchant_id FROM Merchants WHERE merchant_name=?", (merchant_name,))
         merchant_id = cursor.fetchone()
         if not merchant_id:
             raise ValueError("商户不存在")
 
-        # Fetch rentals for the merchant
         cursor.execute(
             "SELECT shop_name, rent, rent_time FROM Shops WHERE merchant_id=? and status=true",
             (merchant_id[0],))
         rentals = cursor.fetchall()
         conn.close()
-        # Create a new window to display rentals
+
         window_rentals = tk.Toplevel(root)
         window_rentals.title("租赁记录")
         window_rentals.geometry("400x300")
@@ -400,21 +392,30 @@ def unsubscribe_merchant():
 
 def shop_operations():
     #商铺操作界面
-    window_shop_ops = tk.Toplevel(root)
-    window_shop_ops.title("商铺操作界面")
-    window_shop_ops.geometry("400x300")
-    button_new_shop = tk.Button(window_shop_ops, text="新建商铺", command=new_shop)
-    button_unsubscribe_shop = tk.Button(window_shop_ops, text="注销商铺", command=unsubscribe_shop)
-    button_change_rent = tk.Button(window_shop_ops, text="修改租金", command=change_rent)
-    button_show_all_shops = tk.Button(window_shop_ops, text="查看所有商铺", command=show_all_shops)
-    button_show_all_merchants = tk.Button(window_shop_ops, text="查看所有商户", command=show_all_merchants)
-    button_show_all_transactions = tk.Button(window_shop_ops, text="查看所有交易记录", command=show_all_transactions)
-    button_new_shop.pack(pady=5)
-    button_unsubscribe_shop.pack(pady=5)
-    button_change_rent.pack(pady=5)
-    button_show_all_shops.pack(pady=5)
-    button_show_all_merchants.pack(pady=5)
-    button_show_all_transactions.pack(pady=5)
+    try:
+        adm_name = usr_merchant.get()
+        if not adm_name:
+            raise ValueError("请输入管理账户！")
+
+        if adm_name != "admin":
+            raise ValueError("您没有权限访问商铺操作界面！")
+        window_shop_ops = tk.Toplevel(root)
+        window_shop_ops.title("商铺操作界面")
+        window_shop_ops.geometry("400x300")
+        button_new_shop = tk.Button(window_shop_ops, text="新建商铺", command=new_shop)
+        button_unsubscribe_shop = tk.Button(window_shop_ops, text="注销商铺", command=unsubscribe_shop)
+        button_change_rent = tk.Button(window_shop_ops, text="修改租金", command=change_rent)
+        button_show_all_shops = tk.Button(window_shop_ops, text="查看所有商铺", command=show_all_shops)
+        button_show_all_merchants = tk.Button(window_shop_ops, text="查看所有商户", command=show_all_merchants)
+        button_show_all_transactions = tk.Button(window_shop_ops, text="查看所有交易记录", command=show_all_transactions)
+        button_new_shop.pack(pady=5)
+        button_unsubscribe_shop.pack(pady=5)
+        button_change_rent.pack(pady=5)
+        button_show_all_shops.pack(pady=5)
+        button_show_all_merchants.pack(pady=5)
+        button_show_all_transactions.pack(pady=5)
+    except ValueError as e:
+        messagebox.showerror("错误", str(e))
 
 def new_shop():
     #新建商铺界面
@@ -563,10 +564,9 @@ def show_all_shops():
     shops = cursor.fetchall()
     conn.close()
 
-    # Create a new window to display shops
     window_shops = tk.Toplevel(root)
     window_shops.title("所有商铺")
-    window_shops.geometry("600x400")
+    # window_shops.geometry("600x400")
     tk.Label(window_shops, text="商铺编号").grid(row=0, column=0)
     tk.Label(window_shops, text="商铺名").grid(row=0, column=1)
     tk.Label(window_shops, text="商户编号").grid(row=0, column=2)
@@ -589,10 +589,9 @@ def show_all_merchants():
     merchants = cursor.fetchall()
     conn.close()
 
-    # Create a new window to display merchants
     window_merchants = tk.Toplevel(root)
     window_merchants.title("所有商户")
-    window_merchants.geometry("400x300")
+    # window_merchants.geometry("400x300")
     tk.Label(window_merchants, text="商户编号").grid(row=0, column=0)
     tk.Label(window_merchants, text="商户名").grid(row=0, column=1)
     tk.Label(window_merchants, text="余额").grid(row=0, column=2)
@@ -609,10 +608,9 @@ def show_all_transactions():
     transactions = cursor.fetchall()
     conn.close()
 
-    # Create a new window to display transactions
     window_transactions = tk.Toplevel(root)
     window_transactions.title("所有交易记录")
-    window_transactions.geometry("600x400")
+    # window_transactions.geometry("600x400")
     tk.Label(window_transactions, text="交易编号").grid(row=0, column=0)
     tk.Label(window_transactions, text="商户编号").grid(row=0, column=1)
     tk.Label(window_transactions, text="交易类型").grid(row=0, column=2)
@@ -654,7 +652,6 @@ def deduct_rent():
                         "INSERT INTO Transactions (merchant_id, amount, transaction_type, transaction_time) VALUES (?, ?, ?, ?)",
                         (merchant_id, rent, 'monthly_rent', transaction_date)
                     )
-
                     cursor.execute("UPDATE Shops SET rent_time=? WHERE shop_id=?", (next_rent_date, shop_id))
             conn.commit()
             conn.close()
